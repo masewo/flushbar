@@ -378,7 +378,8 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
         color: widget.backgroundColor,
         gradient: widget.backgroundGradient,
         boxShadow: widget.boxShadows,
-        borderRadius: BorderRadius.circular(widget.borderRadius),
+        border: Border(top: BorderSide(color: widget.borderColor)),
+//        borderRadius: BorderRadius.circular(widget.borderRadius),
       ),
       child: Padding(
         padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0, top: 16.0),
