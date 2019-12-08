@@ -31,7 +31,7 @@ class Flushbar<T extends Object> extends StatefulWidget {
       Color leftBarIndicatorColor,
       List<BoxShadow> boxShadows,
       Gradient backgroundGradient,
-      FlatButton mainButton,
+      Widget mainButton,
       OnTap onTap,
       Duration duration,
       bool isDismissible = true,
@@ -687,7 +687,7 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
     );
   }
 
-  FlatButton _getMainActionButton() {
+  Widget _getMainActionButton() {
     if (widget.mainButton != null) {
       return widget.mainButton;
     } else {
