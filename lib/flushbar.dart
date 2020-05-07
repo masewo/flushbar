@@ -35,7 +35,8 @@ class Flushbar<T extends Object> extends StatefulWidget {
       OnTap onTap,
       Duration duration,
       bool isDismissible = true,
-      FlushbarDismissDirection dismissDirection = FlushbarDismissDirection.VERTICAL,
+      FlushbarDismissDirection dismissDirection =
+          FlushbarDismissDirection.VERTICAL,
       bool showProgressIndicator = false,
       AnimationController progressIndicatorController,
       Color progressIndicatorBackgroundColor,
@@ -47,8 +48,9 @@ class Flushbar<T extends Object> extends StatefulWidget {
       Duration animationDuration = const Duration(seconds: 1),
       FlushbarStatusCallback onStatusChanged,
       double barBlur = 0.0,
-      double overlayBlur = 0.0,
-      Color overlayColor = Colors.transparent,
+      bool blockBackgroundInteraction = false,
+      double routeBlur,
+      Color routeColor,
       Form userInputForm})
       : this.title = title,
         this.message = message,
@@ -73,7 +75,8 @@ class Flushbar<T extends Object> extends StatefulWidget {
         this.dismissDirection = dismissDirection,
         this.showProgressIndicator = showProgressIndicator,
         this.progressIndicatorController = progressIndicatorController,
-        this.progressIndicatorBackgroundColor = progressIndicatorBackgroundColor,
+        this.progressIndicatorBackgroundColor =
+            progressIndicatorBackgroundColor,
         this.progressIndicatorValueColor = progressIndicatorValueColor,
         this.flushbarPosition = flushbarPosition,
         this.flushbarStyle = flushbarStyle,
@@ -81,8 +84,9 @@ class Flushbar<T extends Object> extends StatefulWidget {
         this.reverseAnimationCurve = reverseAnimationCurve,
         this.animationDuration = animationDuration,
         this.barBlur = barBlur,
-        this.overlayBlur = overlayBlur,
-        this.overlayColor = overlayColor,
+        this.blockBackgroundInteraction = blockBackgroundInteraction,
+        this.routeBlur = routeBlur,
+        this.routeColor = routeColor,
         this.userInputForm = userInputForm,
         super(key: key) {
     this.onStatusChanged = onStatusChanged ?? (status) {};
@@ -135,9 +139,11 @@ class Flushbar<T extends Object> extends StatefulWidget {
   final Duration duration;
 
   /// True if you want to show a [LinearProgressIndicator].
+  /// If [progressIndicatorController] is null, an infinite progress indicator will be shown
   final bool showProgressIndicator;
 
   /// An optional [AnimationController] when you want to control the progress of your [LinearProgressIndicator].
+  /// You are responsible for controlling the progress
   final AnimationController progressIndicatorController;
 
   /// A [LinearProgressIndicator] configuration parameter.
@@ -146,7 +152,7 @@ class Flushbar<T extends Object> extends StatefulWidget {
   /// A [LinearProgressIndicator] configuration parameter.
   final Animation<Color> progressIndicatorValueColor;
 
-  /// Determines if the user can swipe or click the overlay (if [overlayBlur] > 0) to dismiss.
+  /// Determines if the user can swipe or click the overlay (if [routeBlur] > 0) to dismiss.
   /// It is recommended that you set [duration] != null if this is false.
   /// If the user swipes to dismiss or clicks the overlay, no value will be returned.
   final bool isDismissible;
@@ -199,14 +205,20 @@ class Flushbar<T extends Object> extends StatefulWidget {
   /// The greater the value, the greater the blur.
   final double barBlur;
 
+  /// Determines if user can interact with the screen behind it
+  /// If this is false, [routeBlur] and [routeColor] will be ignored
+  final bool blockBackgroundInteraction;
+
   /// Default is 0.0. If different than 0.0, creates a blurred
   /// overlay that prevents the user from interacting with the screen.
   /// The greater the value, the greater the blur.
-  final double overlayBlur;
+  /// It does not take effect if [blockBackgroundInteraction] is false
+  final double routeBlur;
 
-  /// Default is [Colors.transparent]. Only takes effect if [overlayBlur] > 0.0.
+  /// Default is [Colors.transparent]. Only takes effect if [routeBlur] > 0.0.
   /// Make sure you use a color with transparency here e.g. Colors.grey[600].withOpacity(0.2).
-  final Color overlayColor;
+  /// It does not take effect if [blockBackgroundInteraction] is false
+  final Color routeColor;
 
   /// A [TextFormField] in case you want a simple user input. Every other widget is ignored if this is not null.
   final Form userInputForm;
@@ -220,7 +232,8 @@ class Flushbar<T extends Object> extends StatefulWidget {
       flushbar: this,
     );
 
-    return await Navigator.of(context, rootNavigator: false).push(_flushbarRoute);
+    return await Navigator.of(context, rootNavigator: false)
+        .push(_flushbarRoute);
   }
 
   /// Dismisses the flushbar causing is to return a future containing [result].
@@ -260,29 +273,36 @@ class Flushbar<T extends Object> extends StatefulWidget {
   }
 }
 
-class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProviderStateMixin {
-  FlushbarStatus currentStatus;
-
-  AnimationController _fadeController;
-  Animation<double> _fadeAnimation;
-
-  final Widget _emptyWidget = SizedBox(width: 0.0, height: 0.0);
+class _FlushbarState<K extends Object> extends State<Flushbar>
+    with TickerProviderStateMixin {
+  final Duration _pulseAnimationDuration = const Duration(seconds: 1);
+  final Widget _emptyWidget = const SizedBox();
   final double _initialOpacity = 1.0;
   final double _finalOpacity = 0.4;
 
-  final Duration _pulseAnimationDuration = Duration(seconds: 1);
-
+  GlobalKey _backgroundBoxKey;
+  FlushbarStatus currentStatus;
+  AnimationController _fadeController;
+  Animation<double> _fadeAnimation;
   bool _isTitlePresent;
   double _messageTopMargin;
-
   FocusScopeNode _focusNode;
   FocusAttachment _focusAttachment;
+  Completer<Size> _boxHeightCompleter;
+  Function _progressListener;
+  CurvedAnimation _progressAnimation;
 
   @override
   void initState() {
     super.initState();
 
-    assert(((widget.userInputForm != null || ((widget.message != null && widget.message.isNotEmpty) || widget.messageText != null))),
+    _backgroundBoxKey = GlobalKey();
+    _boxHeightCompleter = Completer<Size>();
+
+    assert(
+        ((widget.userInputForm != null ||
+            ((widget.message != null && widget.message.isNotEmpty) ||
+                widget.messageText != null))),
         "A message is mandatory if you are not using userInputForm. Set either a message or messageText");
 
     _isTitlePresent = (widget.title != null || widget.titleText != null);
@@ -312,12 +332,10 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
     super.dispose();
   }
 
-  final Completer<Size> _boxHeightCompleter = Completer<Size>();
-
   void _configureLeftBarFuture() {
     SchedulerBinding.instance.addPostFrameCallback(
       (_) {
-        final keyContext = backgroundBoxKey.currentContext;
+        final keyContext = _backgroundBoxKey.currentContext;
 
         if (keyContext != null) {
           final RenderBox box = keyContext.findRenderObject();
@@ -327,8 +345,17 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
     );
   }
 
+  void _configureProgressIndicatorAnimation() {
+    if (widget.showProgressIndicator &&
+        widget.progressIndicatorController != null) {
+      _progressAnimation = CurvedAnimation(
+          curve: Curves.linear, parent: widget.progressIndicatorController);
+    }
+  }
+
   void _configurePulseAnimation() {
-    _fadeController = AnimationController(vsync: this, duration: _pulseAnimationDuration);
+    _fadeController =
+        AnimationController(vsync: this, duration: _pulseAnimationDuration);
     _fadeAnimation = Tween(begin: _initialOpacity, end: _finalOpacity).animate(
       CurvedAnimation(
         parent: _fadeController,
@@ -348,28 +375,18 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
     _fadeController.forward();
   }
 
-  Function _progressListener;
-
-  void _configureProgressIndicatorAnimation() {
-    if (widget.showProgressIndicator && widget.progressIndicatorController != null) {
-      _progressListener = () {
-        setState(() {});
-      };
-      widget.progressIndicatorController.addListener(_progressListener);
-
-      _progressAnimation = CurvedAnimation(curve: Curves.linear, parent: widget.progressIndicatorController);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Align(
       heightFactor: 1.0,
       child: Material(
-        color: widget.flushbarStyle == FlushbarStyle.FLOATING ? Colors.transparent : widget.backgroundColor,
+        color: widget.flushbarStyle == FlushbarStyle.FLOATING
+            ? Colors.transparent
+            : widget.backgroundColor,
         child: SafeArea(
           minimum: widget.flushbarPosition == FlushbarPosition.BOTTOM
-              ? EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom)
+              ? EdgeInsets.only(
+                  bottom: MediaQuery.of(context).viewInsets.bottom)
               : EdgeInsets.only(top: MediaQuery.of(context).viewInsets.top),
           bottom: widget.flushbarPosition == FlushbarPosition.BOTTOM,
           top: widget.flushbarPosition == FlushbarPosition.TOP,
@@ -398,7 +415,8 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
             if (snapshot.hasData) {
               return ClipRect(
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: widget.barBlur, sigmaY: widget.barBlur),
+                  filter: ImageFilter.blur(
+                      sigmaX: widget.barBlur, sigmaY: widget.barBlur),
                   child: Container(
                     height: snapshot.data.height,
                     width: snapshot.data.width,
@@ -421,19 +439,24 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
 
   Widget _generateInputFlushbar() {
     return Container(
-      key: backgroundBoxKey,
-      constraints: widget.maxWidth != null ? BoxConstraints(maxWidth: widget.maxWidth) : null,
+      key: _backgroundBoxKey,
+      constraints: widget.maxWidth != null
+          ? BoxConstraints(maxWidth: widget.maxWidth)
+          : null,
       decoration: BoxDecoration(
         color: widget.backgroundColor,
         gradient: widget.backgroundGradient,
         boxShadow: widget.boxShadows,
         borderRadius: BorderRadius.circular(widget.borderRadius),
-        border: widget.borderColor != null ? Border.all(color: widget.borderColor, width: widget.borderWidth) : null,
+        border: widget.borderColor != null
+            ? Border.all(color: widget.borderColor, width: widget.borderWidth)
+            : null,
 //        borderRadius: BorderRadius.circular(widget.borderRadius),
 //        border: Border(top: BorderSide(color: widget.borderColor)),
       ),
       child: Padding(
-        padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0, top: 16.0),
+        padding: const EdgeInsets.only(
+            left: 8.0, right: 8.0, bottom: 8.0, top: 16.0),
         child: FocusScope(
           child: widget.userInputForm,
           node: _focusNode,
@@ -443,30 +466,25 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
     );
   }
 
-  CurvedAnimation _progressAnimation;
-  GlobalKey backgroundBoxKey = GlobalKey();
-
   Widget _generateFlushbar() {
     return Container(
-      key: backgroundBoxKey,
-      constraints: widget.maxWidth != null ? BoxConstraints(maxWidth: widget.maxWidth) : null,
+      key: _backgroundBoxKey,
+      constraints: widget.maxWidth != null
+          ? BoxConstraints(maxWidth: widget.maxWidth)
+          : null,
       decoration: BoxDecoration(
         color: widget.backgroundColor,
         gradient: widget.backgroundGradient,
         boxShadow: widget.boxShadows,
         borderRadius: BorderRadius.circular(widget.borderRadius),
-        border: widget.borderColor != null ? Border.all(color: widget.borderColor, width: widget.borderWidth) : null,
+        border: widget.borderColor != null
+            ? Border.all(color: widget.borderColor, width: widget.borderWidth)
+            : null,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          widget.showProgressIndicator
-              ? LinearProgressIndicator(
-                  value: widget.progressIndicatorController != null ? _progressAnimation.value : null,
-                  backgroundColor: widget.progressIndicatorBackgroundColor,
-                  valueColor: widget.progressIndicatorValueColor,
-                )
-              : _emptyWidget,
+          _buildProgressIndicator(),
           Row(
             mainAxisSize: MainAxisSize.max,
             children: _getAppropriateRowLayout(),
@@ -474,6 +492,29 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
         ],
       ),
     );
+  }
+
+  Widget _buildProgressIndicator() {
+    if (widget.showProgressIndicator && _progressAnimation != null) {
+      return AnimatedBuilder(
+          animation: _progressAnimation,
+          builder: (_, __) {
+            return LinearProgressIndicator(
+              value: _progressAnimation.value,
+              backgroundColor: widget.progressIndicatorBackgroundColor,
+              valueColor: widget.progressIndicatorValueColor,
+            );
+          });
+    }
+
+    if (widget.showProgressIndicator) {
+      return LinearProgressIndicator(
+        backgroundColor: widget.progressIndicatorBackgroundColor,
+        valueColor: widget.progressIndicatorValueColor,
+      );
+    }
+
+    return _emptyWidget;
   }
 
   List<Widget> _getAppropriateRowLayout() {
@@ -676,7 +717,10 @@ class _FlushbarState<K extends Object> extends State<Flushbar> with TickerProvid
         ? widget.titleText
         : Text(
             widget.title ?? "",
-            style: TextStyle(fontSize: 16.0, color: Colors.white, fontWeight: FontWeight.bold),
+            style: TextStyle(
+                fontSize: 16.0,
+                color: Colors.white,
+                fontWeight: FontWeight.bold),
           );
   }
 
