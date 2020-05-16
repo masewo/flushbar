@@ -12,7 +12,7 @@ typedef void FlushbarStatusCallback(FlushbarStatus status);
 typedef void OnTap(Flushbar flushbar);
 
 /// A highly customizable widget so you can notify your user when you fell like he needs a beautiful explanation.
-class Flushbar<T extends Object> extends StatefulWidget {
+class Flushbar<T> extends StatefulWidget {
   Flushbar(
       {Key key,
       String title,
@@ -129,7 +129,7 @@ class Flushbar<T extends Object> extends StatefulWidget {
   /// An option to animate the icon (if present). Defaults to true.
   final bool shouldIconPulse;
 
-  /// A widget if you need an action from the user.
+  /// Use if you need an action from the user. [FlatButton] is recommended here
   final Widget mainButton;
 
   /// A callback that registers the user's click anywhere. An alternative to [mainButton]
@@ -413,7 +413,8 @@ class _FlushbarState<K extends Object> extends State<Flushbar>
           future: _boxHeightCompleter.future,
           builder: (context, AsyncSnapshot<Size> snapshot) {
             if (snapshot.hasData) {
-              return ClipRect(
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(widget.borderRadius),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(
                       sigmaX: widget.barBlur, sigmaY: widget.barBlur),
@@ -451,8 +452,6 @@ class _FlushbarState<K extends Object> extends State<Flushbar>
         border: widget.borderColor != null
             ? Border.all(color: widget.borderColor, width: widget.borderWidth)
             : null,
-//        borderRadius: BorderRadius.circular(widget.borderRadius),
-//        border: Border(top: BorderSide(color: widget.borderColor)),
       ),
       child: Padding(
         padding: const EdgeInsets.only(
